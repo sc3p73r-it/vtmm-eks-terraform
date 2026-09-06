@@ -30,6 +30,7 @@ jobs:
     if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'plan')
     uses: ./.github/workflows/terraform-plan-reusable.yml
     with:
+      approvers: sc3p73r-it
       environment: prod
       backend_file: envs/prod/backend.hcl
       tfvars_file: envs/prod/terraform.tfvars
