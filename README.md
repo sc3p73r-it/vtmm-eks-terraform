@@ -64,14 +64,12 @@ Backends are defined per environment in `envs/<env>/backend.hcl` and injected at
 ```
 bucket         = "vtmm-eks-tfstate-<env>-ap-southeast-1"   # S3 stores the state file
 key            = "<env>/terraform.tfstate"
-dynamodb_table = "vtmm-eks-terraform-locks"                # shared DynamoDB lock table
-use_lockfile    = false                                     # S3-native locking OFF → DynamoDB is used
+use_lockfile    = true                                     # S3-native locking
 encrypt         = true
 ```
 
 - **State file** lives in a per-environment S3 bucket (versioned + SSE-encrypted).
-- **Locking** `use_lockfile = false` explicitly disables Terraform's
-  newer S3 conditional-write lock.
+- **Locking** S3-native locking.
 - The GitHub Actions OIDC role is granted exactly the DynamoDB permissions Terraform
   needs for locking (`GetItem`, `PutItem`, `DeleteItem`) plus the state S3 access.
 
