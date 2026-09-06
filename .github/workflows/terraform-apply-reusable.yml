@@ -1,0 +1,73 @@
+name: Terraform - Apply (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Target environment (dev, uat, prod)'
+        required: true
+        type: string
+      action:
+        description: 'Action to run: apply | destroy'
+        required: true
+        type: string
+      backend_file:
+        description: 'Path to backend config file for the environment'
+        required: true
+        type: string
+      tfvars_file:
+        description: 'Path to tfvars file for the environment'
+        required: true
+        type: string
+    secrets:
+      aws_oidc_role_arn:
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  terraform-apply:
+    name: ${{ inputs.action }}-${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    # GitHub Environment gate: uat/prod should be configured with required
+    # reviewers so this job pauses for manual approval before applying.
+    environment:
+      name: ${{ inputs.environment }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.aws_oidc_role_arn }}
+          aws-region: ap-southeast-1
+          role-session-name: gh-${{ inputs.environment }}-${{ inputs.action }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+
+      - name: Terraform Format
+        run: terraform fmt -recursive -check
+
+      - name: Terraform Init
+        run: terraform init -input=false -backend-config=${{ inputs.backend_file }}
+
+      - name: Terraform Validate
+        run: terraform validate -no-color
+
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan -input=false -no-color -var-file=${{ inputs.tfvars_file }} -out=tfplan
+
+      - name: Terraform Apply
+        if: inputs.action == 'apply'
+        run: terraform apply -input=false -no-color -auto-approve tfplan
+
+      - name: Terraform Destroy
+        if: inputs.action == 'destroy'
+        run: terraform destroy -input=false -no-color -auto-approve -var-file=${{ inputs.tfvars_file }}

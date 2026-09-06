@@ -1,0 +1,64 @@
+name: Prod - Terraform
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Terraform action to run'
+        required: true
+        default: 'plan'
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+  pull_request:
+    branches: [main]
+    paths:
+      - '**/*.tf'
+      - '**/*.tfvars'
+      - '**/*.hcl'
+      - '.github/workflows/terraform-plan-reusable.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: plan-prod
+    # Plan only runs on PRs (approval happens in the apply job via environment).
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'plan')
+    uses: ./.github/workflows/terraform-plan-reusable.yml
+    with:
+      environment: prod
+      backend_file: envs/prod/backend.hcl
+      tfvars_file: envs/prod/terraform.tfvars
+    secrets:
+      aws_oidc_role_arn: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+
+  apply:
+    name: apply-prod
+    # Triggered manually via workflow_dispatch (action=apply). The job targets the
+    # GitHub Environment "prod" which should have required reviewers configured
+    # so deployment only proceeds after manual approval.
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'
+    uses: ./.github/workflows/terraform-apply-reusable.yml
+    with:
+      environment: prod
+      action: apply
+      backend_file: envs/prod/backend.hcl
+      tfvars_file: envs/prod/terraform.tfvars
+    secrets:
+      aws_oidc_role_arn: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+
+  destroy:
+    name: destroy-prod
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
+    uses: ./.github/workflows/terraform-apply-reusable.yml
+    with:
+      environment: prod
+      action: destroy
+      backend_file: envs/prod/backend.hcl
+      tfvars_file: envs/prod/terraform.tfvars
+    secrets:
+      aws_oidc_role_arn: ${{ secrets.AWS_OIDC_ROLE_ARN }}

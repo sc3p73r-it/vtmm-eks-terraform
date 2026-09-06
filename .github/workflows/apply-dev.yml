@@ -1,0 +1,60 @@
+name: Dev - Terraform
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Terraform action to run'
+        required: true
+        default: 'plan'
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+  pull_request:
+    branches: [dev]
+    paths:
+      - '**/*.tf'
+      - '**/*.tfvars'
+      - '**/*.hcl'
+      - '.github/workflows/terraform-plan-reusable.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: plan-dev
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'plan')
+    uses: ./.github/workflows/terraform-plan-reusable.yml
+    with:
+      environment: dev
+      backend_file: envs/dev/backend.hcl
+      tfvars_file: envs/dev/terraform.tfvars
+    secrets:
+      aws_oidc_role_arn: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+
+  apply:
+    name: apply-dev
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'
+    uses: ./.github/workflows/terraform-apply-reusable.yml
+    with:
+      environment: dev
+      action: apply
+      backend_file: envs/dev/backend.hcl
+      tfvars_file: envs/dev/terraform.tfvars
+    secrets:
+      aws_oidc_role_arn: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+
+  destroy:
+    name: destroy-dev
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'destroy'
+    uses: ./.github/workflows/terraform-apply-reusable.yml
+    with:
+      environment: dev
+      action: destroy
+      backend_file: envs/dev/backend.hcl
+      tfvars_file: envs/dev/terraform.tfvars
+    secrets:
+      aws_oidc_role_arn: ${{ secrets.AWS_OIDC_ROLE_ARN }}
