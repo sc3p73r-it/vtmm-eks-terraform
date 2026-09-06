@@ -31,7 +31,9 @@ modules and deployed through GitHub Actions with per-environment **manual approv
 ## Design decisions (best practices)
 
 - **Remote state with locking** — one S3 bucket per environment (blast-radius isolation),
-  shared DynamoDB lock table, server-side encryption enabled.
+  versioned and SSE-encrypted. State **locking is handled by a shared DynamoDB table**
+  (`dynamodb_table`), with `use_lockfile = false` so S3-native conditional-write locking is
+  disabled — DynamoDB remains the single source of truth for concurrency control.
 - **Reusable modules** — `vpc` and `eks` are parameterized modules; only
   `envs/<env>/*` change between environments (no duplicated module code).
 - **Environment isolation** — separate VPC CIDR, subnet ranges, node-group sizing and
@@ -47,12 +49,32 @@ modules and deployed through GitHub Actions with per-environment **manual approv
 
 ## Prerequisites
 
-1. Terraform >= 1.5 and AWS credentials with permission to create S3/DynamoDB/IAM/EC2/EKS.
+1. Terraform >= 1.11 (required for `use_lockfile` support) and AWS credentials with
+   permission to create S3/DynamoDB/IAM/EC2/EKS.
 2. A GitHub repository at `vitaltechmyanmar/vtmm-eks-terraform`.
 3. GitHub **Environments** named `dev`, `uat`, `prod` (Settings → Environments).
 4. Two repo-level **secrets** and one **variable**:
    - Secret `AWS_OIDC_ROLE_ARN` → set to the output of bootstrap (see below).
    - Variable `AWS_REGION` (optional, currently hardcoded to `ap-southeast-1`).
+
+## State storage & locking
+
+Backends are defined per environment in `envs/<env>/backend.hcl` and injected at init:
+
+```
+bucket         = "vtmm-eks-tfstate-<env>-ap-southeast-1"   # S3 stores the state file
+key            = "<env>/terraform.tfstate"
+dynamodb_table = "vtmm-eks-terraform-locks"                # shared DynamoDB lock table
+use_lockfile    = false                                     # S3-native locking OFF → DynamoDB is used
+encrypt         = true
+```
+
+- **State file** lives in a per-environment S3 bucket (versioned + SSE-encrypted).
+- **Locking** `use_lockfile = false` explicitly disables Terraform's
+  newer S3 conditional-write lock.
+- The GitHub Actions OIDC role is granted exactly the DynamoDB permissions Terraform
+  needs for locking (`GetItem`, `PutItem`, `DeleteItem`) plus the state S3 access.
+
 
 ## 1 — Bootstrap (one-time)
 
@@ -124,6 +146,10 @@ logic is limited to which backend/tfvars files and which environment gate are us
   PR-triggered plans never stall waiting for reviewers.
 - **Why per-env state buckets?** Destructive changes in one environment are isolated;
   a single shared bucket with keys would centralize risk.
+- **Why DynamoDB locking instead of S3-native (`use_lockfile`)?** DynamoDB locking keeps
+  all lock records in one auditable table, works across Terraform versions, and gives a
+  consistent `terraform force-unlock` flow. It is explicitly chosen here, so
+  `use_lockfile` is pinned to `false` in every `envs/<env>/backend.hcl`.
 - **How do I add an environment (e.g. `staging`)?** Add a `envs/staging/` dir with
   tfvars + backend.hcl, add `staging` to `bootstrap/terraform.tfvars`, and add a
   caller workflow (copy `apply-dev.yml`).
